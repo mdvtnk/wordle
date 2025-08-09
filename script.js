@@ -9,7 +9,7 @@
 // ===================== CONFIG — ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ =====================
 const PUSHER_KEY = "570abd9dffaf960c32a8";
 const PUSHER_CLUSTER = "eu"; // например "eu"
-const SERVER_ENDPOINT = "https://wordle-server-ten.vercel.app//api/send";
+const SERVER_ENDPOINT = "https://wordle-server-ten.vercel.app/api/send";
 // ========================================================================
 
 // Библиотека Pusher подключена в index.html: <script src="https://js.pusher.com/8.2/pusher.min.js"></script>
@@ -254,3 +254,4 @@ setInterval(() => {
 
 // ========== Примеры сообщений из UI ==========
 showMessage("<i>Добро пожаловать. Введите ник и создайте или присоединитесь к комнате.</i>");
+
