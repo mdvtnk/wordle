@@ -1,27 +1,121 @@
-body {
-    font-family: Arial, sans-serif;
-    text-align: center;
-    background: #111;
-    color: white;
+/* Импорт шрифта */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+:root {
+    --bg-color: #0d0d0d;
+    --card-bg: rgba(255, 255, 255, 0.05);
+    --primary: #00ffc3;
+    --secondary: #ff4ecd;
+    --text-light: #f1f1f1;
+    --text-muted: #888;
+    --border-radius: 12px;
+    --transition: all 0.25s ease-in-out;
+}
+
+* {
+    box-sizing: border-box;
     margin: 0;
     padding: 0;
 }
-.screen {
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-light);
+    min-height: 100vh;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    margin-top: 50px;
+    justify-content: center;
+    padding: 20px;
 }
-.hidden {
-    display: none;
+
+.screen {
+    width: 100%;
+    max-width: 500px;
+    background: var(--card-bg);
+    padding: 30px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 0 20px rgba(0, 255, 195, 0.1);
+    text-align: center;
+    animation: fadeIn 0.5s ease forwards;
 }
-input, button {
-    margin: 5px;
-    padding: 10px;
+
+h1, h2 {
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    margin: 8px 0;
+    border-radius: var(--border-radius);
+    border: 2px solid transparent;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-light);
     font-size: 16px;
+    outline: none;
+    transition: var(--transition);
 }
+
+input:focus {
+    border-color: var(--primary);
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    margin: 8px 0;
+    border-radius: var(--border-radius);
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    background: var(--primary);
+    color: #000;
+}
+
+button:hover {
+    background: var(--secondary);
+    color: #fff;
+}
+
 #messages {
     margin-top: 20px;
-    max-width: 400px;
     text-align: left;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 10px;
+    border-radius: var(--border-radius);
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 14px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Скролл для чата */
+#messages::-webkit-scrollbar {
+    width: 6px;
+}
+#messages::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border-radius: 10px;
+}
+
+/* Адаптив */
+@media (max-width: 480px) {
+    .screen {
+        padding: 20px;
+    }
+    h1, h2 {
+        font-size: 20px;
+    }
 }
