@@ -1,4 +1,4 @@
-// script.js — Multiplayer Wordle (client)
+// script.js — Multiplayer Wordle (client) — обновлённая версия
 // ================= CONFIG ===================
 const PUSHER_KEY = "570abd9dffaf960c32a8";
 const PUSHER_CLUSTER = "eu"; // e.g. "eu"
@@ -41,7 +41,13 @@ const MAX_PLAYERS = 10;
 const MAX_ROWS = 6;
 const WORD_LEN = 5;
 let guesses = []; // array of {name, guess, result} for UI
-let currentTyped = ""; // current guess being typed
+
+// typing state for the current editable row
+let currentTypedArr = Array(WORD_LEN).fill("");
+let activeRowIndex = 0; // index of editable row (guesses.length)
+let activeColIndex = 0; // cursor column within row (0..WORD_LEN-1)
+let typingActive = false; // becomes true after user clicks a cell in active row
+let pendingSubmit = false; // to avoid double submit while awaiting host result
 
 // helpers
 function genRoomCode() {
@@ -72,24 +78,34 @@ function createBoard() {
   for (let r = 0; r < MAX_ROWS; r++) {
     const row = document.createElement("div");
     row.className = "row";
+    row.dataset.row = String(r);
     for (let c = 0; c < WORD_LEN; c++) {
       const cell = document.createElement("div");
       cell.className = "cell";
+      cell.dataset.col = String(c);
       row.appendChild(cell);
     }
     boardEl.appendChild(row);
   }
+  // reset typing state
+  guesses = [];
+  currentTypedArr = Array(WORD_LEN).fill("");
+  activeRowIndex = 0;
+  activeColIndex = 0;
+  typingActive = false;
+  pendingSubmit = false;
+  updateActiveRowUI();
 }
 
 // update a row text (without colors)
-function updateRowText(rowIndex, text) {
+function updateRowText(rowIndex, arr) {
   const rows = boardEl.getElementsByClassName("row");
   if (!rows[rowIndex]) return;
   const cells = rows[rowIndex].getElementsByClassName("cell");
   for (let i = 0; i < WORD_LEN; i++) {
-    cells[i].textContent = (text[i] || "").toUpperCase();
+    cells[i].textContent = (arr[i] || "").toUpperCase();
     cells[i].classList.remove("filled");
-    if (text[i]) cells[i].classList.add("filled");
+    if (arr[i]) cells[i].classList.add("filled");
   }
 }
 
@@ -99,10 +115,28 @@ function colorizeRow(rowIndex, result) {
   if (!rows[rowIndex]) return;
   const cells = rows[rowIndex].getElementsByClassName("cell");
   for (let i = 0; i < WORD_LEN; i++) {
-    cells[i].classList.remove("green","yellow","gray");
+    cells[i].classList.remove("green","yellow","gray","active");
     if (result[i] === "green") cells[i].classList.add("green");
     else if (result[i] === "yellow") cells[i].classList.add("yellow");
     else cells[i].classList.add("gray");
+  }
+}
+
+// highlight the active cell/row visually
+function updateActiveRowUI() {
+  const rows = boardEl.getElementsByClassName("row");
+  for (let r = 0; r < rows.length; r++) {
+    const cells = rows[r].getElementsByClassName("cell");
+    for (let c = 0; c < cells.length; c++) {
+      cells[c].classList.remove("active");
+    }
+  }
+  // mark active row and active cell if typingActive
+  if (rows[activeRowIndex]) {
+    const cells = rows[activeRowIndex].getElementsByClassName("cell");
+    for (let c = 0; c < cells.length; c++) {
+      if (typingActive && c === activeColIndex) cells[c].classList.add("active");
+    }
   }
 }
 
@@ -173,11 +207,9 @@ function subscribeToRoom(code) {
     // If host, maintain authoritative list and broadcast players-updated
     if (isHost) {
       if (!players.includes(data.name)) players.push(data.name);
-      // cap to MAX_PLAYERS
       if (players.length > MAX_PLAYERS) players = players.slice(0, MAX_PLAYERS);
       sendEvent("players-updated", { players });
     } else {
-      // non-host just shows join notice (host will send players-updated)
       showMessage(`${data.name} присоединился`);
     }
   });
@@ -191,33 +223,46 @@ function subscribeToRoom(code) {
     }
   });
 
-  // Host sets the word => we receive only notification that round started
+  // Host signals start (word is NOT broadcast)
   channel.bind("game-started", data => {
-    // Do NOT rely on data.word (host should not broadcast it). It's just a signal.
-    createBoard();
+    // reset UI for a new round
     guesses = [];
-    currentTyped = "";
-    showMessage("Раунд начался! Вводите слова (5 букв).");
+    currentTypedArr = Array(WORD_LEN).fill("");
+    activeRowIndex = 0;
+    activeColIndex = 0;
+    typingActive = false;
+    pendingSubmit = false;
+    createBoard(); // recreate board empties it
+    showMessage("Раунд начался! Нажмите на клетку, чтобы начать ввод.");
   });
 
-  // A player submitted a guess to the host — host will evaluate and broadcast result.
+  // Host evaluates and broadcasts guess-result
   channel.bind("guess-result", data => {
-    // data = {name, guess, result: ['green',...], rowIndex}
+    // data: { name, guess, result, rowIndex }
+    const rowIndex = (typeof data.rowIndex === "number") ? data.rowIndex : guesses.length;
     guesses.push({ name: data.name, guess: data.guess, result: data.result });
-    const rowIndex = guesses.length - 1;
-    updateRowText(rowIndex, data.guess);
+    updateRowText(rowIndex, data.guess.split(""));
     colorizeRow(rowIndex, data.result);
     showMessage(`${data.name} → ${data.guess.toUpperCase()}`);
 
+    // prepare next editable row
+    activeRowIndex = guesses.length;
+    currentTypedArr = Array(WORD_LEN).fill("");
+    activeColIndex = 0;
+    typingActive = false;
+    pendingSubmit = false;
+    updateActiveRowUI();
+
     if (data.result.every(c => c === "green")) {
       // winner announced by host via winner event too
-      showMessage(`🎉 Победитель: ${data.name}! Слово: скрыто (только у хоста)`);
+      showMessage(`🎉 Победитель: ${data.name}!`);
     }
   });
 
-  // Host broadcasts winner (text)
+  // Host broadcasts winner (text + revealed word)
   channel.bind("winner", data => {
     showMessage(`🎉 Победитель: ${data.name}! Загаданное слово: ${data.word.toUpperCase()}`);
+    // after winner, next round will be started by host via game-started
   });
 
   // basic UI show
@@ -225,7 +270,9 @@ function subscribeToRoom(code) {
   gameScreen.classList.remove("hidden");
   setHeader();
   createBoard();
-  showMessage(`Вы в комнате ${roomCode}. Ожидание хоста / начало раунда.`);
+  showMessage(`Вы в комнате ${roomCode}. Нажмите на клетку, чтобы начать ввод.`);
+  // if isHost bind host-side handling
+  if (isHost) hostBindForEvaluations();
 }
 
 // UI actions
@@ -234,11 +281,9 @@ createBtn.addEventListener("click", async () => {
   if (!nickname) return alert("Введите ник.");
   isHost = true;
   roomCode = genRoomCode();
-  // host is first player
   players = [nickname];
   subscribeToRoom(roomCode);
   hostControls.classList.remove("hidden");
-  // announce join to let other clients (if any) know — host also broadcasts players-updated
   await sendEvent("player-joined", { name: nickname });
   await sendEvent("players-updated", { players });
 });
@@ -250,7 +295,6 @@ joinBtn.addEventListener("click", async () => {
   roomCode = code;
   isHost = false;
   subscribeToRoom(roomCode);
-  // announce to host and others
   await sendEvent("player-joined", { name: nickname });
 });
 
@@ -260,94 +304,158 @@ startBtn.addEventListener("click", async () => {
   const w = secretWordInput.value.trim().toLowerCase();
   if (!w || w.length !== WORD_LEN) return alert("Слово должно быть из 5 букв.");
   secretWord = w;
-  // Clear board and alert players — DO NOT include the secret word in broadcast
   guesses = [];
   createBoard();
   await sendEvent("game-started", { startedBy: nickname });
-  showMessage("Вы задали слово. Игра началась.");
+  showMessage("Вы задали слово. Нажмите на клетку, чтобы игроки могли вводить.");
+  hostControls.classList.add("hidden");
 });
 
 // leave
 leaveBtn.addEventListener("click", async () => {
   if (!roomCode || !nickname) return;
   await sendEvent("player-left", { name: nickname });
-  // cleanup UI
   location.reload();
 });
 
-// typing and enter handling
+// ************* CLICK-TO-TYPE: клик по клетке включает ввод *************
+boardEl.addEventListener("click", (e) => {
+  const cell = e.target.closest(".cell");
+  if (!cell) return;
+  const rowEl = cell.parentElement;
+  const rowIndex = parseInt(rowEl.dataset.row, 10);
+  const colIndex = parseInt(cell.dataset.col, 10);
+
+  // only allow editing current editable row (next to fill)
+  const editableRow = guesses.length;
+  if (rowIndex !== editableRow) {
+    // если кликнули по старой заполненной строке — ничего
+    // можно сделать: перейти на текущую строку автоматически
+    // но по требованию — включаем ввод только при клике в текущей строке
+    showMessage("Кликните в текущую (пустую) строку для начала ввода.");
+    return;
+  }
+
+  activeRowIndex = editableRow;
+  activeColIndex = colIndex;
+  typingActive = true;
+  updateActiveRowUI();
+});
+
+// ************* KEY HANDLING: поддержка кириллицы + автоотправка *************
+function isLetterChar(ch) {
+  if (!ch) return false;
+  // Latin A-Z and Cyrillic blocks (including ё)
+  return /^[A-Za-z\u0400-\u04FF]$/u.test(ch);
+}
+
 document.addEventListener("keydown", async (e) => {
-  if (!channel || !roomCode) return;
-  // if board full, ignore
-  if (guesses.length >= MAX_ROWS) return;
+  // typing only after click on a cell
+  if (!typingActive) return;
+
+  // prevent actions if we've already sent and wait for result
+  if (pendingSubmit) return;
+
   if (e.key === "Backspace") {
-    if (currentTyped.length > 0) currentTyped = currentTyped.slice(0, -1);
-    updateRowText(guesses.length, currentTyped);
+    // remove char at activeColIndex-1 (like normal backspace)
+    // if current cell empty, move left; else clear current
+    if (currentTypedArr[activeColIndex]) {
+      currentTypedArr[activeColIndex] = "";
+    } else {
+      // move left if possible
+      if (activeColIndex > 0) {
+        activeColIndex--;
+        currentTypedArr[activeColIndex] = "";
+      }
+    }
+    updateRowText(activeRowIndex, currentTypedArr);
+    updateActiveRowUI();
+    e.preventDefault();
     return;
   }
+
   if (e.key === "Enter") {
-    if (currentTyped.length !== WORD_LEN) return showMessage("Нужно ввести 5 букв.");
-    // submit guess: send to host for evaluation
-    await sendEvent("guess-submitted", { name: nickname, guess: currentTyped });
-    // lock typed until host result arrives
-    currentTyped = "";
+    // submit only if row full
+    if (currentTypedArr.every(ch => ch && ch.length > 0)) {
+      await submitCurrentGuess();
+    } else {
+      showMessage("Нужно ввести 5 букв перед отправкой.");
+    }
+    e.preventDefault();
     return;
   }
-  // only latin letters and cyrillic suppressed; accept english letters only ideally
-  const ch = e.key;
-  if (/^[a-zA-Z]$/.test(ch) && currentTyped.length < WORD_LEN) {
-    currentTyped += ch.toLowerCase();
-    updateRowText(guesses.length, currentTyped);
+
+  // accept letter if it is Latin or Cyrillic
+  const key = e.key;
+  if (isLetterChar(key) && currentTypedArr.filter(Boolean).length < WORD_LEN) {
+    // insert at activeColIndex
+    currentTypedArr[activeColIndex] = key.toLowerCase();
+    // move cursor to next available position to the right
+    let next = activeColIndex + 1;
+    while (next < WORD_LEN && currentTypedArr[next]) next++;
+    if (next <= WORD_LEN - 1) activeColIndex = next;
+    // if we are at end and it's filled, place cursor at last index
+    if (activeColIndex > WORD_LEN - 1) activeColIndex = WORD_LEN - 1;
+
+    updateRowText(activeRowIndex, currentTypedArr);
+    updateActiveRowUI();
+
+    // AUTO-SUBMIT: если все заполнено — отправляем догадку автоматически
+    if (currentTypedArr.every(ch => ch && ch.length > 0)) {
+      await submitCurrentGuess();
+    }
+    e.preventDefault();
+    return;
   }
 });
+
+// submit current typed row to host (guess-submitted)
+async function submitCurrentGuess() {
+  if (!roomCode || !nickname) return;
+  if (pendingSubmit) return;
+  const guessStr = currentTypedArr.join("").toLowerCase();
+  if (guessStr.length !== WORD_LEN) {
+    showMessage("Нужно ввести 5 букв.");
+    return;
+  }
+  pendingSubmit = true;
+  typingActive = false;
+  updateActiveRowUI();
+  await sendEvent("guess-submitted", { name: nickname, guess: guessStr });
+  // После отправки мы ждём событие guess-result от хоста, который обновит строку
+}
 
 // Host: listen for guess-submitted and evaluate
 function hostBindForEvaluations() {
   if (!isHost || !channel) return;
+  // make sure not to double-bind
+  channel.unbind("guess-submitted");
   channel.bind("guess-submitted", async (data) => {
     // data: {name, guess}
-    // Authoritative evaluation only on host
     if (!secretWord) {
-      // if host hasn't set a word yet, ignore or notify
+      // host hasn't set a word yet
       await sendEvent("message", { text: "Хост не задал слово." });
       return;
     }
-
+    // evaluate
     const result = evaluateGuess(secretWord, data.guess);
-    // row index = current number of guesses among all clients (host uses local guesses length)
-    const rowIndex = guesses.length; // host's local count
-    // broadcast guess-result
+    const rowIndex = guesses.length;
+    // broadcast guess-result so all clients can render the colored row
     await sendEvent("guess-result", { name: data.name, guess: data.guess, result, rowIndex });
-    // store in host's history
+    // host stores it locally
     guesses.push({ name: data.name, guess: data.guess, result });
 
     if (result.every(x => x === "green")) {
-      // announce winner and reveal word
       await sendEvent("winner", { name: data.name, word: secretWord });
-      // optionally reset secretWord or keep until host sets new word
-      secretWord = null;
-      // host can prompt for new word
-      showMessage(`Раунд завершён. Победил ${data.name}.`);
+      secretWord = null; // clear secret after round
       hostControls.classList.remove("hidden");
     }
   });
 }
 
-// Also host should handle players-updated requests if any (we already broadcast on join/leave)
-// But bind host evaluation on subscription ready:
-function waitForSubscriptionAndBind() {
-  // pusher.bind_global not in this lib; we'll detect channel presence by small delay
-  setTimeout(() => {
-    if (isHost) hostBindForEvaluations();
-  }, 500);
-}
-
-// When receiving players-updated we already update UI (see binds). For initial local join we request players list by notifying join to host.
-
 // Before unload — attempt to notify
 window.addEventListener("beforeunload", () => {
   if (roomCode && nickname) {
-    // best-effort
     navigator.sendBeacon && navigator.sendBeacon(SERVER_ENDPOINT, JSON.stringify({
       channel: `room-${roomCode}`, event: "player-left", data: { name: nickname }
     }));
@@ -359,15 +467,9 @@ window.addEventListener("beforeunload", () => {
   createBoard();
   const saved = localStorage.getItem("wordle_nick");
   if (saved) nicknameInput.value = saved;
-  // auto-detect if ?room=CODE in URL
   const params = new URLSearchParams(location.search);
   const code = params.get("room");
-  if (code) {
-    // if we have room in URL, auto-fill join code
-    joinCodeInput.value = code.toUpperCase();
-  }
-  // subscribe readiness
-  waitForSubscriptionAndBind();
+  if (code) joinCodeInput.value = code.toUpperCase();
 })();
 
 // store nickname when typed
