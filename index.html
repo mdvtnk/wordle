@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wordle Multiplayer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://js.pusher.com/8.2/pusher.min.js"></script>
+</head>
+<body>
+    <div id="login-screen" class="screen">
+        <h1>Wordle Multiplayer</h1>
+        <input type="text" id="nickname" placeholder="Введите ник">
+        <button id="create-room">Создать комнату</button>
+        <input type="text" id="join-code" placeholder="Код комнаты">
+        <button id="join-room">Присоединиться</button>
+    </div>
+
+    <div id="game-screen" class="screen hidden">
+        <h2 id="room-info"></h2>
+        <div id="host-controls" class="hidden">
+            <input type="text" id="secret-word" placeholder="Задай слово">
+            <button id="start-game">Начать</button>
+        </div>
+        <div id="guess-section" class="hidden">
+            <input type="text" id="guess" placeholder="Ваш ответ">
+            <button id="send-guess">Отправить</button>
+        </div>
+        <div id="messages"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
